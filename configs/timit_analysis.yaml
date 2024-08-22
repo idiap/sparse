@@ -1,0 +1,188 @@
+#
+# SPDX-FileCopyrightText: Copyright © 2024 Idiap Research Institute <contact@idiap.ch>
+#
+# SPDX-FileContributor: Alexandre Bittar <abittar@idiap.ch>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
+##################################################
+# Model: CTC ASR on TIMIT with SNN-based encoder #
+##################################################
+
+# Seed needs to be set at top of yaml
+seed: 1986
+__set_seed: !apply:torch.manual_seed [!ref <seed>]
+
+# Save folder for exp results
+output_folder: !ref results/Encoder_2ms_16chan_3x512_ff1_rnn5_sfa5 # must match trained model
+test_wer_file: !ref <output_folder>/wer.txt
+save_folder: !ref <output_folder>/save
+train_log: !ref <output_folder>/train_log.txt
+
+# Dataset
+data_folder: !PLACEHOLDER  # /path/to/TIMIT
+train_annotation: !ref <save_folder>/train.json
+valid_annotation: !ref <save_folder>/dev.json
+test_annotation: !ref <save_folder>/test.json
+skip_prep: False
+uppercase: False
+
+# Analysis parameters
+phase_layer: 0
+amplitude_layer: 3
+phase_freq_range: [4, 8]
+amplitude_freq_range: [30, 80]
+phase_band_name: "Theta"
+amplitude_band_name: "Low-Gamma"
+num_utterances_pac_analysis: 64
+utterance_id: 0
+plot_parameters: True
+plot_weights: True
+plot_spikes: True
+plot_rates: True
+plot_pac: True
+plot_filtered_population: True
+run_pac_analysis: False
+save_plots: True
+plots_folder: !ref <output_folder>/plots
+
+# Training parameters
+batch_size: !ref <num_utterances_pac_analysis>
+lr: 1.e-3
+sorting: descending
+
+# Feature parameters
+sample_rate: 16000
+n_fft: 400
+n_mels: 80
+window_length: 25
+hop_length: 2
+
+# Encoder parameters (must match trained model)
+auditory_channels: [16]
+auditory_kernel_size: (7, 7)
+auditory_frequency_stride: [1]
+auditory_sfa_portion: 0.
+auditory_rnn_portion: 0.
+auditory_use_lateral_rnn: True
+cortex_layer_sizes: [512, 512, 512]
+cortex_sfa_portions: [0.5, 0.5, 0.5]
+cortex_rnn_portions: [0.5, 0.5, 0.5]
+cortex_feedforward_portions: [1.0, 1.0, 1.0]
+cortex_use_lateral_rnn: False
+phoneme_ctc_rate_hz: 25
+phoneme_num_layers: 2
+phoneme_features: 512
+activation: !name:torch.nn.LeakyReLU
+dropout: 0.
+adlif_tauu_lim: [3.0, 25.0]
+adlif_tauw_lim: [30.0, 350.0]
+adlif_a_lim: [-0.5, 5.0]
+adlif_b_lim: [0.0, 2.0]
+adlif_use_normal_init: False
+adlif_threshold: 1.0
+
+# Output classifier
+vocab_size: 40
+blank_index: 0
+
+# Dataloader options
+num_workers: 4
+train_dataloader_opts:
+    batch_size: !ref <batch_size>
+    num_workers: !ref <num_workers>
+
+valid_dataloader_opts:
+    batch_size: !ref <batch_size>
+    num_workers: !ref <num_workers>
+
+test_dataloader_opts:
+    batch_size: !ref <batch_size>
+    num_workers: !ref <num_workers>
+
+# Waveform to phoneme probabilities pipeline
+compute_features: !new:speechbrain.lobes.features.Fbank
+    sample_rate: !ref <sample_rate>
+    n_fft: !ref <n_fft>
+    n_mels: !ref <n_mels>
+    win_length: !ref <window_length>
+    hop_length: !ref <hop_length>
+
+normalize: !new:speechbrain.processing.features.InputNormalization
+    norm_type: global
+
+model: !new:sparse.encoder_asr.ASREncoder
+    num_mel_bins: !ref <n_mels>
+    auditory_channels: !ref <auditory_channels>
+    auditory_kernel_size: !ref <auditory_kernel_size>
+    auditory_frequency_stride: !ref <auditory_frequency_stride>
+    auditory_sfa_portion: !ref <auditory_sfa_portion>
+    auditory_rnn_portion: !ref <auditory_rnn_portion>
+    auditory_use_lateral_rnn: !ref <auditory_use_lateral_rnn>
+    cortex_layer_sizes: !ref <cortex_layer_sizes>
+    cortex_sfa_portions: !ref <cortex_sfa_portions>
+    cortex_rnn_portions: !ref <cortex_rnn_portions>
+    cortex_feedforward_portions: !ref <cortex_feedforward_portions>
+    cortex_use_lateral_rnn: !ref <cortex_use_lateral_rnn>
+    phoneme_ctc_rate_hz: !ref <phoneme_ctc_rate_hz>
+    phoneme_num_layers: !ref <phoneme_num_layers>
+    phoneme_features: !ref <phoneme_features>
+    activation: !ref <activation>
+    dropout: !ref <dropout>
+    adlif_tauu_lim: !ref <adlif_tauu_lim>
+    adlif_tauw_lim: !ref <adlif_tauw_lim>
+    adlif_a_lim: !ref <adlif_a_lim>
+    adlif_b_lim: !ref <adlif_b_lim>
+    adlif_use_normal_init: !ref <adlif_use_normal_init>
+    adlif_threshold: !ref <adlif_threshold>
+    dt: !ref <hop_length>
+
+classifier: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <phoneme_features>
+    n_neurons: !ref <vocab_size>
+    bias: True
+
+log_softmax: !new:speechbrain.nnet.activations.Softmax
+    apply_log: True
+
+modules:
+    model: !ref <model>
+    classifier: !ref <classifier>
+    normalize: !ref <normalize>
+
+# Compute loss
+compute_cost: !name:speechbrain.nnet.losses.ctc_loss
+    blank_index: !ref <blank_index>
+
+# Training utils
+opt_class: !name:torch.optim.Adam
+    lr: !ref <lr>
+
+lr_annealing: !new:speechbrain.nnet.schedulers.NewBobScheduler
+    initial_value: !ref <lr>
+    improvement_threshold: 0.0025
+    annealing_factor: !ref 0.8
+    patient: !ref 0
+
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+    limit: 1
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: !ref <save_folder>
+    recoverables:
+        model: !ref <model>
+        classifier: !ref <classifier>
+        scheduler: !ref <lr_annealing>
+        normalizer: !ref <normalize>
+        counter: !ref <epoch_counter>
+
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+    save_file: !ref <train_log>
+
+ctc_stats: !name:speechbrain.utils.metric_stats.MetricStats
+    metric: !name:speechbrain.nnet.losses.ctc_loss
+        blank_index: !ref <blank_index>
+        reduction: batch
+
+per_stats: !name:speechbrain.utils.metric_stats.ErrorRateStats
