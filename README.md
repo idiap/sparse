@@ -18,7 +18,7 @@ inside the [SpeechBrain](https://github.com/speechbrain/speechbrain) framework.
 
 ## Installation
 ```
-git clone git@gitlab.idiap.ch:abittar/sparse.git
+git clone https://github.com/idiap/sparse.git
 cd sparse
 pip install -r requirements.txt
 pip install -e .
